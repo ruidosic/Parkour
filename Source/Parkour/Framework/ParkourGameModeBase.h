@@ -14,4 +14,7 @@ class PARKOUR_API AParkourGameModeBase : public AGameModeBase
 {
 	GENERATED_BODY()
 	
+public:
+
+	AParkourGameModeBase();
 };
