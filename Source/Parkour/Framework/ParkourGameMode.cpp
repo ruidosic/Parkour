@@ -1,12 +1,12 @@
-// Copyright 1998-2019 Epic Games, Inc. All Rights Reserved.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 
-#include "ParkourGameModeBase.h"
+#include "ParkourGameMode.h"
 #include "UObject/ConstructorHelpers.h"
 #include "ParkourPlayerController.h"
 #include "ParkourGameState.h"
 
-AParkourGameModeBase::AParkourGameModeBase()
+AParkourGameMode::AParkourGameMode()
 {
 	static ConstructorHelpers::FClassFinder<APawn> PawnClass(TEXT("/Game/Parkour/MainCharacter/Blueprints/BP_MainCharacter"));
 	if (PawnClass.Succeeded())

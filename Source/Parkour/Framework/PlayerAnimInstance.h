@@ -14,13 +14,9 @@ USTRUCT(Blueprintable)
 struct FParkourAnim
 {
 	/*
-	1) Because Anim without RootMotion not enabled in network game
+       Because Anim without RootMotion not enabled in network game
 	   And for some movement i need anims with root motion enabled
 	   So i use AnimMontages, because it is only whey to do it for network game
-	
-	2) Use state machine in C++ is too suffer, so i only store variables in this class
-	   Main Logic complete in ABP_MainCharacter
-	   Nativization work properly, so its not expensive
 	*/
 
 
@@ -46,7 +42,17 @@ struct FParkourAnim
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
 	UAnimMontage* ClimbJumpUp;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
+	UAnimMontage* ClimbJumpBehind;
 };
+
+/*
+	Use state machine in C++ is too suffer, so i only store variables in this class
+	Main Logic complete in ABP_MainCharacter
+	Nativization work properly, so its not expensive
+*/
+
 
 
 UCLASS()

@@ -13,6 +13,8 @@ class UAnimMontage;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogMainCharacter, Display, All);
 
+
+
 UCLASS()
 class PARKOUR_API AMainCharacter : public ACharacter
 {
@@ -28,6 +30,12 @@ protected:
 
 	/* Configuration Interface (Maybe need wrap this into model/struct ) */
 	
+	UPROPERTY(EditAnywhere, Category = "CommonMovement")
+	float CharacterWalkingSpeed = 200;
+
+	UPROPERTY(EditAnywhere, Category = "CommonMovement")
+	float CharacterRunningSpeed = 300;
+
 	UPROPERTY(EditAnywhere, Category = "TraceSettings|FrontTraces")
 	float FrontTracesDrawTimeInterval = 0.01;
 
@@ -80,12 +88,13 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "TraceSettings")
 	TArray<AActor*> ActorsToIgnore;
 
+
 	/* We must know this bone name for calculating distance between ledge and pelvis */
 	UPROPERTY(EditAnywhere, Category = "TraceSettings")
 	FName PelvisBoneName = FName("Pelvis");
 
-	UPROPERTY(EditAnywhere, Category = "TraceSettings|SideMovements")
-	float SideMovementSpeed = 100;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "TraceSettings|SideMovements")
+	float ClimbingMovementSpeed = 100;
 
 	// Need to be BP Callable for Latent Action 
 	// Function was called after ComponentMoveTo action complete 
@@ -148,7 +157,7 @@ public:
 	void Server_GrabLedge();
 
 	void ReleaseLedge();
-	void ReleaseLedgeAfterMontage(UAnimMontage* Montage);
+	void ReleaseLedgeByTime(float Time);
 
 	UFUNCTION(NetMulticast, Reliable, WithValidation)
 	void Multicast_ReleaseLedge();
@@ -176,10 +185,7 @@ private:
 
 	/* Anim Montages from AnimInstance*/
 
-	void SetupAnimMontages();
-
-	UPROPERTY(Transient)
-	UAnimMontage* ClimbUpMontage;
+	float GetClimbUpMontageLength() const;
 
 				/* Drawing Traces */
 
@@ -225,7 +231,7 @@ private:
 	void MessegeCanMoveRightToAnim();
 	void MessegeMoveRightToAnim(float Value);
 
-	void MoveOnLedge(float MoveRightValue);
+	void MoveOnLedge(float& MoveRightValue);
 
 	UFUNCTION(Server, Unreliable, WithValidation)
 	void Server_MoveOnLedge(float MoveRightValue);
@@ -233,12 +239,29 @@ private:
 	UFUNCTION(NetMulticast, Unreliable, WithValidation)
 	void Multicast_MoveOnLedge(float MoveRightValue);
 
-	// Jump Movements
+	/* Jump Movements */
 
 	void MessegeCanJumpLeftToAnim();
 	void MessegeCanJumpRightToAnim();
 
-	// Mesc for addition Calculating
+	void JumpLeftLedge();
+	void JumpRightLedge();
+
+	void JumpOnLedge(float MoveRightValue);
+
+	//UFUNCTION(Server, Unreliable, WithValidation)
+	//void Server_JumpOnLedge();
+
+	//UFUNCTION(NetMulticast, Unreliable, WithValidation)
+	//void Multicast_JumpOnLedge();
+
+
+
+	// Mesc for addition Calculating and replication
+
+	// maybe need to delete
+	UPROPERTY(Replicated, Transient)
+	float MoveRightInput;
 
 	UPROPERTY(Replicated, Transient)
 	FVector WallLocation;
@@ -260,18 +283,6 @@ private:
 
 	UPROPERTY(Replicated, Transient)
 	bool bCanJumpRight;
-
-	UPROPERTY(ReplicatedUsing = OnRep_LeftMoveDeltaLocation, Transient)
-	FVector LeftMoveDeltaLocation;
-
-	UPROPERTY(ReplicatedUsing = OnRep_RightMoveDeltaLocation, Transient)
-	FVector RightMoveDeltaLocation;
-
-	UFUNCTION()
-	void OnRep_LeftMoveDeltaLocation();
-
-	UFUNCTION()
-	void OnRep_RightMoveDeltaLocation();
 
 
 	/* Calcucation Functions */

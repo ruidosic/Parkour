@@ -7,11 +7,12 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/GameState.h"
 #include "Components/CapsuleComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Animation/AnimInstance.h"
 #include "ParkourInterface.h"
-#include "Components/ArrowComponent.h"
+
 
 DEFINE_LOG_CATEGORY(LogMainCharacter);
 
@@ -19,6 +20,7 @@ void AMainCharacter::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > & Ou
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
+	DOREPLIFETIME(AMainCharacter, MoveRightInput);
 	DOREPLIFETIME(AMainCharacter, WallLocation);
 	DOREPLIFETIME(AMainCharacter, WallNormal);
 	DOREPLIFETIME(AMainCharacter, HeightLocation);
@@ -26,8 +28,6 @@ void AMainCharacter::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > & Ou
 	DOREPLIFETIME(AMainCharacter, bCanMoveRight);
 	DOREPLIFETIME(AMainCharacter, bCanJumpLeft);
 	DOREPLIFETIME(AMainCharacter, bCanJumpRight);
-	DOREPLIFETIME(AMainCharacter, LeftMoveDeltaLocation);
-	DOREPLIFETIME(AMainCharacter, RightMoveDeltaLocation);
 }
 
 AMainCharacter::AMainCharacter()
@@ -44,6 +44,7 @@ AMainCharacter::AMainCharacter()
 }
 
 
+
 void AMainCharacter::BeginPlay()
 {
 	Super::BeginPlay();
@@ -53,7 +54,6 @@ void AMainCharacter::BeginPlay()
 	}
 	
 	StartFrontTracesDrawTimer();
-	SetupAnimMontages();	
 }
 
 
@@ -216,6 +216,32 @@ void AMainCharacter::MessegeMoveRightToAnim(float Value)
 }
 
 
+void AMainCharacter::MessegeCanJumpLeftToAnim()
+{
+	if (GetMesh())
+	{
+		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+
+		if (AnimInstance && AnimInstance->Implements<UParkourInterface>())
+		{
+			IParkourInterface::Execute_SetCanJumpLeft(AnimInstance, bCanJumpLeft);
+		}
+	}
+}
+
+void AMainCharacter::MessegeCanJumpRightToAnim()
+{
+	if (GetMesh())
+	{
+		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+
+		if (AnimInstance && AnimInstance->Implements<UParkourInterface>())
+		{
+			IParkourInterface::Execute_SetCanJumpRight(AnimInstance, bCanJumpRight);
+		}
+	}
+}
+
 								/* Timers Function for Server and Clients */
 
 // Start Timer for Drawing Front Traces
@@ -229,31 +255,29 @@ void AMainCharacter::ClimbingLedgeComplete_Implementation(bool bValue)
 
 }
 
-void AMainCharacter::SetupAnimMontages()
+float AMainCharacter::GetClimbUpMontageLength() const
 {
 	if (GetMesh())
 	{
 		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
 		if (!AnimInstance)
 		{
-			UE_LOG(LogMainCharacter, Warning, TEXT("AMainCharacter::SetupMontages -- you must set AnimInstance Class for: "), *this->GetFullName())
-				return;
+			UE_LOG(LogMainCharacter, Warning, TEXT("AMainCharacter::SetupMontages -- you must set AnimInstance Class for: "), *GetFullName())
 		}
 
 		if (AnimInstance->Implements<UParkourInterface>())
 		{
-			ClimbUpMontage = IParkourInterface::Execute_GetClimbUpMontage(AnimInstance);
-			if (!ClimbUpMontage)
-			{
-				UE_LOG(LogMainCharacter, Warning, TEXT("you must set montages into FParkourMontages"));
-			}
+			return IParkourInterface::Execute_GetClimbUpMontageLength(AnimInstance);
 		}
 
 		if (!AnimInstance->Implements<UParkourInterface>())
 		{
 			UE_LOG(LogMainCharacter, Warning, TEXT("AMainCharacter::SetupAnimMontages -- cant find ParkourInterface implementation for AnimInstance: "), *AnimInstance->GetFullName())
 		}
+		return 0.0;
 	}
+	else
+		return 0.0;
 }
 
 void AMainCharacter::StartFrontTracesDrawTimer()
@@ -466,26 +490,8 @@ void AMainCharacter::ClearSideTracesDrawTimer()
 }
 
 
-void AMainCharacter::MoveOnLedge(float MoveRightValue)
+void AMainCharacter::MoveOnLedge(float& MoveRightValue)
 {
-	// on all local
-
-	if (bCanMoveLeft && MoveRightValue < 0)
-	{
-		LeftMoveDeltaLocation = (-1) * GetActorRightVector() * SideMovementSpeed * GetWorld()->GetDeltaSeconds();
-		AddActorWorldOffset(LeftMoveDeltaLocation);
-	}
-	if (bCanMoveRight && MoveRightValue > 0)
-	{
-		RightMoveDeltaLocation = GetActorRightVector() * SideMovementSpeed * GetWorld()->GetDeltaSeconds();
-		AddActorWorldOffset(RightMoveDeltaLocation);
-	}
-
-	MessegeCanMoveLeftToAnim();
-	MessegeCanMoveRightToAnim();
-	MessegeMoveRightToAnim(MoveRightValue);
-
-	// say to server
 
 	if (!HasAuthority())
 	{
@@ -493,67 +499,21 @@ void AMainCharacter::MoveOnLedge(float MoveRightValue)
 	}
 	else
 	{
-		if (bCanMoveLeft && MoveRightValue < 0)
-		{
-			LeftMoveDeltaLocation = (-1) * GetActorRightVector() * SideMovementSpeed * GetWorld()->GetDeltaSeconds();
-			AddActorWorldOffset(LeftMoveDeltaLocation);
-		}
-		if (bCanMoveRight && MoveRightValue > 0)
-		{
-			RightMoveDeltaLocation = GetActorRightVector() * SideMovementSpeed * GetWorld()->GetDeltaSeconds();
-			AddActorWorldOffset(RightMoveDeltaLocation);
-		}
-
-		MessegeCanMoveLeftToAnim();
-		MessegeCanMoveRightToAnim();
-		MessegeMoveRightToAnim(MoveRightValue);
+		Multicast_MoveOnLedge(MoveRightValue);
 	}
+	
+	if(MoveRightValue > 0 && !bCanMoveRight || (MoveRightValue < 0 && !bCanMoveLeft))
+		MoveRightValue = 0.0;
+
+	MessegeCanMoveLeftToAnim();
+	MessegeCanMoveRightToAnim();
+	MessegeMoveRightToAnim(MoveRightValue);
 
 }
 
-void AMainCharacter::MessegeCanJumpLeftToAnim()
-{
-	if (GetMesh())
-	{
-		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-
-		if (AnimInstance && AnimInstance->Implements<UParkourInterface>())
-		{
-			IParkourInterface::Execute_SetCanJumpLeft(AnimInstance, bCanJumpLeft);
-		}
-	}
-}
-
-void AMainCharacter::MessegeCanJumpRightToAnim()
-{
-	if (GetMesh())
-	{
-		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-
-		if (AnimInstance && AnimInstance->Implements<UParkourInterface>())
-		{
-			IParkourInterface::Execute_SetCanJumpRight(AnimInstance, bCanJumpRight);
-		}
-	}
-}
 
 void AMainCharacter::Server_MoveOnLedge_Implementation(float MoveRightValue)
 {
-	if (bCanMoveLeft && MoveRightValue < 0)
-	{
-		LeftMoveDeltaLocation = (-1) * GetActorRightVector() * SideMovementSpeed * GetWorld()->GetDeltaSeconds();
-		AddActorWorldOffset(LeftMoveDeltaLocation);
-	}
-	if (bCanMoveRight && MoveRightValue > 0)
-	{
-		RightMoveDeltaLocation = GetActorRightVector() * SideMovementSpeed * GetWorld()->GetDeltaSeconds();
-		AddActorWorldOffset(RightMoveDeltaLocation);
-	}
-
-	MessegeMoveRightToAnim(MoveRightValue);
-	MessegeCanMoveLeftToAnim();
-	MessegeCanMoveRightToAnim();
-
 	Multicast_MoveOnLedge(MoveRightValue);
 }
 
@@ -588,15 +548,18 @@ bool AMainCharacter::GetResultFromCapsuleTrace(FVector StartPoint, FVector EndPo
 	return UKismetSystemLibrary::CapsuleTraceSingleByProfile(this, StartPoint, EndPoint, Radius, HalfHeight, FName("BlockAll"), false, ActorsToIgnore, EDrawDebugTrace::ForOneFrame, HitResult, true);
 }
 
-void AMainCharacter::OnRep_LeftMoveDeltaLocation()
+void AMainCharacter::JumpLeftLedge()
 {
-	AddActorWorldOffset(LeftMoveDeltaLocation, true);
 }
 
-void AMainCharacter::OnRep_RightMoveDeltaLocation()
+void AMainCharacter::JumpRightLedge()
 {
-	AddActorWorldOffset(RightMoveDeltaLocation, true);
 }
+
+void AMainCharacter::JumpOnLedge(float MoveRightValue)
+{
+}
+
 
 bool AMainCharacter::IsPelvisNearLedge()
 {	
@@ -614,6 +577,7 @@ bool AMainCharacter::IsPelvisNearLedge()
 
 void AMainCharacter::GrabLedge()
 {
+
 	if (Role < ROLE_Authority)
 		Server_GrabLedge();
 
@@ -624,6 +588,7 @@ void AMainCharacter::GrabLedge()
 
 void AMainCharacter::Multicast_GrabLedge_Implementation()
 {
+	GetCharacterMovement()->bOrientRotationToMovement = false;
 	GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Flying);
 	FLatentActionInfo Action(1, 0, TEXT("MovePlayerForHangingComplete"), this);
 	UKismetSystemLibrary::MoveComponentTo(GetCapsuleComponent(), CalculateGrabLocation(), CalculateGrabRotation(), false, false, 0.13, false, EMoveComponentAction::Move, Action);
@@ -688,6 +653,7 @@ bool AMainCharacter::Server_ClimbingLedge_Validate()
 
 void AMainCharacter::ReleaseLedge()
 {
+
 	if (Role < ROLE_Authority)
 		Server_ReleaseLedge();
 
@@ -695,19 +661,18 @@ void AMainCharacter::ReleaseLedge()
 		Multicast_ReleaseLedge();
 }
 
-void AMainCharacter::ReleaseLedgeAfterMontage(UAnimMontage* Montage)
+void AMainCharacter::ReleaseLedgeByTime(float Time)
 {
-	if (Montage)
-	{
-		FTimerHandle Timer;
-		GetWorld()->GetTimerManager().SetTimer(Timer, this, &AMainCharacter::ReleaseLedge, Montage->SequenceLength, false);
-	}
+	FTimerHandle Timer;
+	GetWorld()->GetTimerManager().SetTimer(Timer, this, &AMainCharacter::ReleaseLedge, Time, false);
 }
 
 void AMainCharacter::Multicast_ReleaseLedge_Implementation()
 {
 	GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Walking);
 	
+	GetCharacterMovement()->bOrientRotationToMovement = true;
+
 	WallLocation = FVector(0.0, 0.0, 0.0);
 	WallNormal = FVector(0.0, 0.0, 0.0);
 	HeightLocation = FVector(0.0, 0.0, 0.0);
@@ -776,16 +741,13 @@ void AMainCharacter::MoveForward(float Value)
 
 void AMainCharacter::MoveRight(float Value)
 {
-
-	if (!bHanging)
-	{
-		FVector RightDirection = UKismetMathLibrary::GetRightVector(FRotator(0.0, GetControlRotation().Yaw, 0.0));
-		AddMovementInput(RightDirection, Value);
-	}
-	else
+	if (bHanging)
 	{
 		MoveOnLedge(Value);
 	}
+	
+	FVector RightDirection = UKismetMathLibrary::GetRightVector(FRotator(0.0, GetControlRotation().Yaw, 0.0));
+	AddMovementInput(RightDirection, Value);
 }
 
 void AMainCharacter::LookUp(float Value)
@@ -807,8 +769,7 @@ void AMainCharacter::JumpClimbUp()
 	else
 	{
 		ClimbingLedge();
-		ReleaseLedgeAfterMontage(ClimbUpMontage);
+		ReleaseLedgeByTime(GetClimbUpMontageLength());
 	}
-	
 }
 
