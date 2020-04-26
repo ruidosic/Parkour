@@ -3,8 +3,7 @@
 
 #include "ParkourGameMode.h"
 #include "UObject/ConstructorHelpers.h"
-#include "ParkourPlayerController.h"
-#include "ParkourGameState.h"
+
 
 AParkourGameMode::AParkourGameMode()
 {
@@ -12,7 +11,5 @@ AParkourGameMode::AParkourGameMode()
 	if (PawnClass.Succeeded())
 	{
 		DefaultPawnClass = PawnClass.Class;
-		PlayerControllerClass = AParkourPlayerController::StaticClass();
-		GameStateClass = AParkourGameState::StaticClass();
 	}
 }

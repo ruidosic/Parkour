@@ -40,10 +40,16 @@ public:
 	void SetCanMoveLeft(bool bClimbingLeft);
 
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
+	void SetCanJumpUp(bool bCanJumpLeft);
+
+	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
 	void SetCanMoveRight(bool bClimbingRight);
 
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
 	void SetCanJumpLeft(bool bCanJumpLeft);
+
+	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
+	void SetIsJumping(bool bClimbJumping);
 
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
 	void SetCanJumpRight(bool bCanJumpRight);
@@ -53,4 +59,9 @@ public:
 
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
 	float GetClimbUpMontageLength() const;
+
+	// side jump animations must have equal length,
+	//because if it is not, then movement wasnt sync 
+	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
+	float GetClimbSideJumpMontageLength() const;
 };

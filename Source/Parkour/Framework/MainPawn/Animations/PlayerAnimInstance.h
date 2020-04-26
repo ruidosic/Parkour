@@ -35,16 +35,16 @@ struct FParkourAnim
 	UAnimSequenceBase* ClimbRight;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
-	UAnimMontage* ClimbJumpLeft;
+	UAnimSequenceBase* ClimbJumpLeft;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
-	UAnimMontage* ClimbJumpRight;
+	UAnimSequenceBase* ClimbJumpRight;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
-	UAnimMontage* ClimbJumpUp;
+	UAnimSequenceBase* ClimbJumpUp;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
-	UAnimMontage* ClimbJumpBehind;
+	UAnimSequenceBase* ClimbJumpBehind;
 };
 
 /*
@@ -76,6 +76,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Transient)
 	bool bCanMoveRight;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Transient)
+	bool bClimbJumping;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Transient)
 	bool bCanJumpLeft;
