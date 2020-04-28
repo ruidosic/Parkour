@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Interface.h"
+#include "PlayerAnimations.h"
 #include "ParkourInterface.generated.h"
 
 
@@ -31,6 +32,9 @@ class PARKOUR_API IParkourInterface
 public:
 
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
+	void SetAnimations(FPlayerAnimations Animations);
+
+	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
 	void SetHanging(bool bHanging);
 
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
@@ -40,28 +44,11 @@ public:
 	void SetCanMoveLeft(bool bClimbingLeft);
 
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
-	void SetCanJumpUp(bool bCanJumpLeft);
-
-	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
 	void SetCanMoveRight(bool bClimbingRight);
-
-	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
-	void SetCanJumpLeft(bool bCanJumpLeft);
-
-	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
-	void SetIsJumping(bool bClimbJumping);
-
-	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
-	void SetCanJumpRight(bool bCanJumpRight);
 
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
 	void SetMoveRight(float Value);
 
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
-	float GetClimbUpMontageLength() const;
-
-	// side jump animations must have equal length,
-	//because if it is not, then movement wasnt sync 
-	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
-	float GetClimbSideJumpMontageLength() const;
+	void SetCanTurn(bool bCanTurn);
 };

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "Animations/PlayerAnimations.h"
 #include "MainCharacter.generated.h"
 
 class UCameraComponent;
@@ -36,7 +37,7 @@ protected:
 	/* Configuration Interface (Maybe need wrap this into model/struct ) */
 	
 	UPROPERTY(EditAnywhere, Category = "CommonMovement")
-	UAnimMontage* TestMontage;
+	FPlayerAnimations Animations;
 
 	UPROPERTY(EditAnywhere, Category = "CommonMovement")
 	float CharacterWalkingSpeed = 200;
@@ -47,8 +48,8 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "ClimbingMovements", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float ClimbingMovementSpeedMultiplier = 1.0;
 
-	UPROPERTY(EditAnywhere, Category = "TraceSettings|Jumping", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float ClimbingSideJumpLength = 150.0;
+	UPROPERTY(EditAnywhere, Category = "TraceSettings|Jumping")
+	float ClimbingJumpBackStrength = 400.0;
 
 	UPROPERTY(EditAnywhere, Category = "TraceSettings|FrontTraces")
 	float FrontTracesDrawTimeInterval = 0.01;
@@ -59,14 +60,31 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "TraceSettings|FrontTraces|ForwardTrace")
 	float ForwardTraceRadius = 20.0;
 
-	UPROPERTY(EditAnywhere, Category = "TraceSettings|FrontTraces|HeightTrace")
+	//
+
+	UPROPERTY(EditAnywhere, Category = "TraceSettings|FrontTraces|HeightTraces")
 	float HeightTraceElevation = 500.0;
 
-	UPROPERTY(EditAnywhere, Category = "TraceSettings|FrontTraces|HeightTrace")
+	UPROPERTY(EditAnywhere, Category = "TraceSettings|FrontTraces|HeightTraces")
 	float HeightTraceRadius = 20.0;
 
-	UPROPERTY(EditAnywhere, Category = "TraceSettings|FrontTraces|HeightTrace")
+	UPROPERTY(EditAnywhere, Category = "TraceSettings|FrontTraces|HeightTraces")
 	float HeightTraceLength = 70.0;
+
+	// Left and Right Corners for wall detection
+	UPROPERTY(EditAnywhere, Category = "TraceSettings|FrontTraces|HeightTraces")
+	float CornesrCapsuleTraceRadius = 20.0;
+
+	UPROPERTY(EditAnywhere, Category = "TraceSettings|FrontTraces|HeightTraces")
+	float CornersCapsuleTraceHalfHeight = 90.0;
+
+	UPROPERTY(EditAnywhere, Category = "TraceSettings|FrontTraces|HeightTraces")
+	float CornersCapsuleTraceForwardShift = 60.0;
+
+	UPROPERTY(EditAnywhere, Category = "TraceSettings|FrontTraces|HeightTraces")
+	float CornersCapsuleTracesLength = 60.0;
+
+	//
 
 	UPROPERTY(EditAnywhere, Category = "TraceSettings|JumpUpTrace")
 	float JumpUpTraceRadius = 20.0;
@@ -80,11 +98,15 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "TraceSettings|JumpUpTrace")
 	float JumpUpForwardShift = 70.0;
 
+	//
+
 	UPROPERTY(EditAnywhere, Category = "TraceSettings|MoveLeftRightTraces")
 	float MoveSideTracesLength = 70.0;
 
 	UPROPERTY(EditAnywhere, Category = "TraceSettings|MoveLeftRightTraces")
 	float MoveSideTracesRadius = 20.0;
+
+	//
 
 	UPROPERTY(EditAnywhere, Category = "TraceSettings|JumpLeftRightTraces")
 	float JumpSideTracesLength = 110.0;
@@ -97,6 +119,14 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "TraceSettings|JumpLeftRightTraces")
 	float SideTracesHalfHeight = 60.0;
+	
+	UPROPERTY(EditAnywhere, Category = "TraceSettings|JumpLeftRightTraces")
+	FVector SideBoxTracesHalfSize = FVector(25.0, 25.0, 5.0);
+
+	UPROPERTY(EditAnywhere, Category = "TraceSettings|JumpLeftRightTraces")
+	float SideBoxTracesHeightShift = 120.0;
+
+	//
 
 	UPROPERTY(EditAnywhere, Category = "TraceSettings|Hanging")
 	float HangingDistanceByXY = 25.0;
@@ -110,6 +140,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "TraceSettings")
 	TArray<AActor*> ActorsToIgnore;
 
+	UPROPERTY(EditAnywhere, Category = "TraceSettings")
+	TArray<TEnumAsByte<EObjectTypeQuery> > ClimbingObjectTypes;
+
 
 	/* We must know this bone name for calculating distance between ledge and pelvis */
 	UPROPERTY(EditAnywhere, Category = "TraceSettings")
@@ -120,11 +153,14 @@ protected:
 	UFUNCTION(BlueprintCallable)
 	void MovePlayerForHangingComplete();
 
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION()
 	void ClimbLeftJumpingComplete();
 
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION()
 	void ClimbRightJumpingComplete();
+
+	UFUNCTION()
+	void ClimbUpJumpingComplete();
 
 public:	
 
@@ -227,6 +263,7 @@ private:
 
 	float GetClimbUpMontageLength() const;
 	float GetClimbSideJumpMontageLength() const;
+	float GetClimbJumpUpMontageLength() const;
 
 				/* Drawing Traces */
 
@@ -241,7 +278,7 @@ private:
 	UFUNCTION()
 	void DrawFrontTraces();
 	void ForwardTraceDraw();
-	bool HeightTraceDraw();
+	bool HeightTracesDraw();
 
 			/* Side Traces and Side Movement  */
 
@@ -277,11 +314,6 @@ private:
 
 	/* Jump Movements */
 
-	void MessegeCanJumpLeftToAnim();
-	void MessegeCanJumpRightToAnim();
-	void MessegeCanJumpUpToAnim();
-	void MessegeIsJumpingToAnim();
-
 	void JumpLeftLedge();
 
 	UFUNCTION(Server, Reliable, WithValidation)
@@ -305,6 +337,29 @@ private:
 
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_JumpUpLedge();
+
+	void JumpBackLedge();
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_JumpBackLedge();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_JumpBackLedge();
+
+	/* Turning */
+
+	void MessegeCanTurnToAnim(bool bValue);
+
+	void Turning();
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_Turning();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_Turning();
+
+	void TurningBack(bool bTurnBack);
+
 
 	// Mesc for addition Calculating and replication
 	float MoveForwardInput;
@@ -339,15 +394,18 @@ private:
 	UPROPERTY(Replicated, Transient)
 	bool bCanJumpRight;
 
+	bool bCanTurn;
+
 
 	/* Calcucation Functions */
 
 	bool IsPelvisNearLedge();
 	FVector CalculateGrabLocation();
 	FRotator CalculateGrabRotation();
-	bool GetResultFromSphereTrace(FVector StartPoint, FVector EndPoint, float Radius, FHitResult& HitResult);
-	bool GetResultFromCapsuleTrace(FVector StartPoint, FVector EndPoint, float Radius, float HalfHeight, FHitResult& HitResult);
-
+	bool IsTurnDirection();
+	bool GetResultFromSphereTrace(const FVector StartPoint, const FVector EndPoint, const float Radius, FHitResult& HitResult);
+	bool GetResultFromCapsuleTrace(const FVector StartPoint, const FVector EndPoint, const float Radius, const float HalfHeight, FHitResult& HitResult);
+	bool GetResultFromBoxTrace(const FVector StartPoint, const FVector EndPoint, const FVector HalfSize, const FRotator Orientation, FHitResult& HitResult);
 
 	/* Player's Input Functions */
 
@@ -356,5 +414,4 @@ private:
 	void LookUp(float Value);
 	void Turn(float Value);
 	void JumpPressed();
-	void Test();
 };

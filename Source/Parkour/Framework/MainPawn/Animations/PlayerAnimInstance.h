@@ -4,48 +4,14 @@
 
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
+#include "PlayerAnimations.h"
 #include "ParkourInterface.h"
 #include "PlayerAnimInstance.generated.h"
 
 class UAnimSequenceBase;
 class UAnimMontage;
 
-USTRUCT(Blueprintable)
-struct FParkourAnim
-{
-	/*
-       Because Anim without RootMotion not enabled in network game
-	   And for some movement i need anims with root motion enabled
-	   So i use AnimMontages, because it is only whey to do it for network game
-	*/
 
-
-	GENERATED_BODY()
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
-	UAnimSequenceBase* HangingIdle;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
-	UAnimMontage* ClimbUp;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
-	UAnimSequenceBase* ClimbLeft;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
-	UAnimSequenceBase* ClimbRight;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
-	UAnimSequenceBase* ClimbJumpLeft;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
-	UAnimSequenceBase* ClimbJumpRight;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
-	UAnimSequenceBase* ClimbJumpUp;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ParkourSequence")
-	UAnimSequenceBase* ClimbJumpBehind;
-};
 
 /*
 	Use state machine in C++ is too suffer, so i only store variables in this class
@@ -62,8 +28,8 @@ class PARKOUR_API UPlayerAnimInstance : public UAnimInstance, public IParkourInt
 	
 protected:
 	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FParkourAnim ParkourAnim;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Transient)
+	FPlayerAnimations PlayerAnimations;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Transient)
 	bool bHanging;
@@ -85,6 +51,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Transient)
 	bool bCanJumpRight;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Transient)
+	bool bCanTurn;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Transient)
 	float MoveRight;

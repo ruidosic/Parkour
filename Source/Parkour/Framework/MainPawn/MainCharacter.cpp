@@ -55,6 +55,11 @@ void AMainCharacter::PostInitializeComponents()
 	Super::PostInitializeComponents();
 
 	MovementComponent = Cast<UParkourMovementComponent>(GetMovementComponent());
+
+	if (GetMesh() && GetMesh()->GetAnimInstance() && GetMesh()->GetAnimInstance()->Implements<UParkourInterface>())
+	{
+		IParkourInterface::Execute_SetAnimations(GetMesh()->GetAnimInstance(), Animations);
+	}
 }
 
 void AMainCharacter::BeginPlay()
@@ -64,6 +69,9 @@ void AMainCharacter::BeginPlay()
 	{
 		NetUpdateFrequency = 10.0;
 	}
+
+	// i need get camera rotation for turning back, i checked GetControlRotation and its not replicated
+	Camera->SetIsReplicated(true);
 
 	StartFrontTracesDrawTimer();
 }
@@ -84,9 +92,6 @@ void AMainCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 	// Action
 	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &AMainCharacter::JumpPressed);
 	PlayerInputComponent->BindAction("Jump", IE_Released, this, &ACharacter::StopJumping);
-
-	// Action
-	PlayerInputComponent->BindAction("TestButton", IE_Pressed, this, &AMainCharacter::Test);
 }
 
 
@@ -250,8 +255,37 @@ void AMainCharacter::MessegeMoveRightToAnim(float Value)
 	}
 }
 
+void AMainCharacter::JumpBackLedge()
+{
+	if (HasAuthority())
+	{
+		Multicast_JumpBackLedge();
+	}
+	else
+	{
+		Server_JumpBackLedge();
+	}
+}
 
-void AMainCharacter::MessegeCanJumpLeftToAnim()
+void AMainCharacter::Server_JumpBackLedge_Implementation()
+{
+	Multicast_JumpBackLedge();
+}
+
+bool AMainCharacter::Server_JumpBackLedge_Validate()
+{
+	return true;
+}
+
+void AMainCharacter::Multicast_JumpBackLedge_Implementation()
+{
+	FRotator NewRotation = FRotator(GetActorRotation().Pitch, GetActorRotation().Yaw - 180.0, GetActorRotation().Roll);
+	SetActorRotation(NewRotation);
+	FVector JumpDirection = GetActorForwardVector() + GetActorUpVector();
+	LaunchCharacter(JumpDirection * ClimbingJumpBackStrength, true, true);
+}
+
+void AMainCharacter::MessegeCanTurnToAnim(bool bValue)
 {
 	if (GetMesh())
 	{
@@ -259,49 +293,72 @@ void AMainCharacter::MessegeCanJumpLeftToAnim()
 
 		if (AnimInstance && AnimInstance->Implements<UParkourInterface>())
 		{
-			IParkourInterface::Execute_SetCanJumpLeft(AnimInstance, bCanJumpLeft);
+			IParkourInterface::Execute_SetCanTurn(AnimInstance, bValue);
 		}
 	}
 }
 
-void AMainCharacter::MessegeCanJumpRightToAnim()
+void AMainCharacter::Turning()
 {
-	if (GetMesh())
-	{
-		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	UE_LOG(LogTemp, Warning, TEXT("%s"), *Camera->GetComponentRotation().ToString());
 
-		if (AnimInstance && AnimInstance->Implements<UParkourInterface>())
+	if (IsTurnDirection() && !bCanTurn)
+	{
+		if (HasAuthority())
 		{
-			IParkourInterface::Execute_SetCanJumpRight(AnimInstance, bCanJumpRight);
+			Multicast_Turning();
+		}
+		else
+		{
+			Server_Turning();
 		}
 	}
+	if (!IsTurnDirection() && bCanTurn)
+	{
+		if (HasAuthority())
+		{
+			Multicast_Turning();
+		}
+		else
+		{
+			Server_Turning();
+		}
+	}
+
+
 }
 
-void AMainCharacter::MessegeCanJumpUpToAnim()
+void AMainCharacter::TurningBack(bool bTurnBack)
 {
-	if (GetMesh())
-	{
-		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-
-		if (AnimInstance && AnimInstance->Implements<UParkourInterface>())
-		{
-			IParkourInterface::Execute_SetCanJumpUp(AnimInstance, bCanJumpUp);
-		}
-	}
+	bCanTurn = bTurnBack;
+	MessegeCanTurnToAnim(bTurnBack);
 }
 
-void AMainCharacter::MessegeIsJumpingToAnim()
+void AMainCharacter::Server_Turning_Implementation()
 {
-	if (GetMesh())
-	{
-		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	Multicast_Turning();
+}
 
-		if (AnimInstance && AnimInstance->Implements<UParkourInterface>())
-		{
-			IParkourInterface::Execute_SetIsJumping(AnimInstance, bJumping);
-		}
+bool AMainCharacter::Server_Turning_Validate()
+{
+	return true;
+}
+
+void AMainCharacter::Multicast_Turning_Implementation()
+{
+	if (bCanTurn)
+	{
+		TurningBack(false);
+	}
+	else
+	{
+		TurningBack(true);
 	}
 }
+
+
+
+
 
 
 /* Timers Function for Server and Clients */
@@ -319,24 +376,9 @@ void AMainCharacter::ClimbingLedgeComplete_Implementation(bool bValue)
 
 float AMainCharacter::GetClimbUpMontageLength() const
 {
-	if (GetMesh())
+	if (GetMesh() && GetMesh()->GetAnimInstance())
 	{
-		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-		if (!AnimInstance)
-		{
-			UE_LOG(LogMainCharacter, Warning, TEXT("AMainCharacter::GetClimbUpMontageLength -- you must set AnimInstance Class for: "), *GetFullName())
-		}
-
-		if (AnimInstance->Implements<UParkourInterface>())
-		{
-			return IParkourInterface::Execute_GetClimbUpMontageLength(AnimInstance);
-		}
-
-		if (!AnimInstance->Implements<UParkourInterface>())
-		{
-			UE_LOG(LogMainCharacter, Warning, TEXT("AMainCharacter::GetClimbUpMontageLength -- cant find ParkourInterface implementation for AnimInstance: "), *AnimInstance->GetFullName())
-		}
-		return 0.0;
+			return Animations.ParkourAnimations.ClimbUp->SequenceLength;
 	}
 	else
 		return 0.0;
@@ -344,24 +386,19 @@ float AMainCharacter::GetClimbUpMontageLength() const
 
 float AMainCharacter::GetClimbSideJumpMontageLength() const
 {
-	if (GetMesh())
+	if (GetMesh() && GetMesh()->GetAnimInstance())
 	{
-		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-		if (!AnimInstance)
-		{
-			UE_LOG(LogMainCharacter, Warning, TEXT("AMainCharacter::GetClimbSideJumpMontageLength -- you must set AnimInstance Class for: "), *GetFullName())
-		}
-
-		if (AnimInstance->Implements<UParkourInterface>())
-		{
-			return IParkourInterface::Execute_GetClimbSideJumpMontageLength(AnimInstance);
-		}
-
-		if (!AnimInstance->Implements<UParkourInterface>())
-		{
-			UE_LOG(LogMainCharacter, Warning, TEXT("AMainCharacter::GetClimbSideJumpMontageLength -- cant find ParkourInterface implementation for AnimInstance: "), *AnimInstance->GetFullName())
-		}
+		return Animations.ParkourAnimations.ClimbJumpRight->SequenceLength;
+	}
+	else
 		return 0.0;
+}
+
+float AMainCharacter::GetClimbJumpUpMontageLength() const
+{
+	if (GetMesh() && GetMesh()->GetAnimInstance())
+	{
+		return Animations.ParkourAnimations.ClimbJumpUp->SequenceLength;
 	}
 	else
 		return 0.0;
@@ -391,7 +428,7 @@ void AMainCharacter::DrawFrontTraces()
 		ForwardTraceDraw();
 
 		// Height trace also check that wall in front of us
-		if (HeightTraceDraw() && IsPelvisNearLedge() && !bClimbing)
+		if (HeightTracesDraw() && IsPelvisNearLedge() && !bClimbing)
 		{
 			ClearFrontTracesDrawTimer();
 			GrabLedge();
@@ -421,20 +458,33 @@ void AMainCharacter::ForwardTraceDraw()
 
 }
 
-bool AMainCharacter::HeightTraceDraw()
+bool AMainCharacter::HeightTracesDraw()
 {
-	FVector TraceStartPoint = FVector(GetActorLocation().X, GetActorLocation().Y, GetActorLocation().Z + HeightTraceElevation) + GetActorForwardVector() * HeightTraceLength;
-	FVector TraceEndPoint = TraceStartPoint - FVector(0.0, 0.0, HeightTraceElevation);
+	FVector HeightTraceStartPoint = FVector(GetActorLocation().X, GetActorLocation().Y, GetActorLocation().Z + HeightTraceElevation) + GetActorForwardVector() * HeightTraceLength;
+	FVector HeightTraceEndPoint = HeightTraceStartPoint - FVector(0.0, 0.0, HeightTraceElevation);
 
-	FHitResult HitResult;
-	if (GetResultFromSphereTrace(TraceStartPoint, TraceEndPoint, HeightTraceRadius, HitResult))
+	FVector LeftCornerTraceStartPoint = GetActorLocation() + GetActorForwardVector() * CornersCapsuleTraceForwardShift + (-1) * GetActorRightVector() * CornersCapsuleTracesLength;
+	FVector LeftCornerTraceEndPoint = LeftCornerTraceStartPoint;
+
+	FVector RightCornerTraceStartPoint = GetActorLocation() + GetActorForwardVector() * CornersCapsuleTraceForwardShift + GetActorRightVector() * CornersCapsuleTracesLength;
+	FVector RightCornerTraceEndPoint = RightCornerTraceStartPoint;
+
+
+	FHitResult HeightTraceHitResult;
+	FHitResult TempHitResult;
+
+	bool DetectWall = GetResultFromSphereTrace(HeightTraceStartPoint, HeightTraceEndPoint, HeightTraceRadius, HeightTraceHitResult);
+	bool DetectLeftCorner = GetResultFromCapsuleTrace(LeftCornerTraceStartPoint, LeftCornerTraceEndPoint, CornesrCapsuleTraceRadius, CornersCapsuleTraceHalfHeight, TempHitResult);
+	bool DetectRightCorner = GetResultFromCapsuleTrace(RightCornerTraceStartPoint, RightCornerTraceEndPoint, CornesrCapsuleTraceRadius, CornersCapsuleTraceHalfHeight, TempHitResult);
+
+	if (DetectWall && (DetectLeftCorner ||DetectRightCorner))
 	{
-		HeightLocation = HitResult.Location;
+		HeightLocation = HeightTraceHitResult.Location;
 
 		// Message to Server that we change Height Location
 		if (Role < ROLE_Authority)
 		{
-			Server_SetHeightLocation(HitResult.Location);
+			Server_SetHeightLocation(HeightTraceHitResult.Location);
 		}
 		return true;
 	}
@@ -535,12 +585,19 @@ void AMainCharacter::LeftJumpTraceDraw()
 {
 	if (!bCanMoveLeft)
 	{
-		FVector TraceStartPoint = GetActorLocation() + GetActorForwardVector() * SideTracesForwardShift + (-1) * GetActorRightVector() * JumpSideTracesLength;
-		FVector TraceEndPoint = TraceStartPoint;
+		FVector LeftCapsuleTraceStartPoint = GetActorLocation() + GetActorForwardVector() * SideTracesForwardShift + (-1) * GetActorRightVector() * JumpSideTracesLength;
+		FVector LeftCapsuleTraceEndPoint = LeftCapsuleTraceStartPoint;
+
+		FVector LeftBoxTraceStartPoint = GetActorLocation() + GetActorForwardVector() * SideTracesForwardShift + (-1) * GetActorRightVector() * JumpSideTracesLength + FVector(0.0, 0.0, SideBoxTracesHeightShift);
+		FVector LeftBoxTraceEndPoint = LeftBoxTraceStartPoint;
+
 
 		FHitResult HitResult;
 
-		if (GetResultFromCapsuleTrace(TraceStartPoint, TraceEndPoint, MoveSideTracesRadius, SideTracesHalfHeight, HitResult))
+		bool WallLeftDetect = GetResultFromCapsuleTrace(LeftCapsuleTraceStartPoint, LeftCapsuleTraceEndPoint, MoveSideTracesRadius, SideTracesHalfHeight, HitResult);
+		bool WallLeftUpDetect = GetResultFromBoxTrace(LeftBoxTraceStartPoint, LeftBoxTraceEndPoint, SideBoxTracesHalfSize, GetActorRotation(), HitResult);
+
+		if (WallLeftDetect && !WallLeftUpDetect)
 		{
 			bCanJumpLeft = true;
 
@@ -565,12 +622,19 @@ void AMainCharacter::RightJumpTraceDraw()
 {
 	if (!bCanMoveRight)
 	{
-		FVector TraceStartPoint = GetActorLocation() + GetActorForwardVector() * SideTracesForwardShift + GetActorRightVector() * JumpSideTracesLength;
-		FVector TraceEndPoint = TraceStartPoint;
+		FVector RightCapsuleTraceStartPoint = GetActorLocation() + GetActorForwardVector() * SideTracesForwardShift + GetActorRightVector() * JumpSideTracesLength;
+		FVector RightCapsuleTraceEndPoint = RightCapsuleTraceStartPoint;
+
+		FVector RightBoxTraceStartPoint = GetActorLocation() + GetActorForwardVector() * SideTracesForwardShift + GetActorRightVector() * JumpSideTracesLength + FVector(0.0, 0.0, SideBoxTracesHeightShift);
+		FVector RightBoxTraceEndPoint = RightBoxTraceStartPoint;
+
 
 		FHitResult HitResult;
 
-		if (GetResultFromCapsuleTrace(TraceStartPoint, TraceEndPoint, JumpSideTracesRadius, SideTracesHalfHeight, HitResult))
+		bool WallRightDetect = GetResultFromCapsuleTrace(RightCapsuleTraceStartPoint, RightCapsuleTraceEndPoint, MoveSideTracesRadius, SideTracesHalfHeight, HitResult);
+		bool WallRightUpDetect = GetResultFromBoxTrace(RightBoxTraceStartPoint, RightBoxTraceEndPoint, SideBoxTracesHalfSize, GetActorRotation(), HitResult);
+
+		if (WallRightDetect && !WallRightUpDetect)
 		{
 			bCanJumpRight = true;
 
@@ -625,7 +689,7 @@ void AMainCharacter::Server_MoveOnLedge_Implementation(float MoveRightValue)
 
 void AMainCharacter::Multicast_MoveOnLedge_Implementation(float MoveRightValue)
 {
-	if (!IsLocallyControlled())
+	if (!IsLocallyControlled() && !HasAuthority())
 	{
 		MessegeMoveRightToAnim(MoveRightValue);
 		MessegeCanMoveLeftToAnim();
@@ -640,26 +704,33 @@ bool AMainCharacter::Server_MoveOnLedge_Validate(float MoveRightValue)
 }
 
 
-bool AMainCharacter::GetResultFromSphereTrace(FVector StartPoint, FVector EndPoint, float Radius, FHitResult& HitResult)
+bool AMainCharacter::GetResultFromSphereTrace(const FVector StartPoint, const FVector EndPoint, const float Radius, FHitResult& HitResult)
 {
-	return UKismetSystemLibrary::SphereTraceSingleByProfile(this, StartPoint, EndPoint, Radius, FName("BlockAll"), false, ActorsToIgnore, EDrawDebugTrace::ForOneFrame, HitResult, true);
+	return UKismetSystemLibrary::SphereTraceSingleForObjects(this, StartPoint, EndPoint, Radius, ClimbingObjectTypes, false, ActorsToIgnore, EDrawDebugTrace::ForOneFrame, HitResult, true);
 }
 
-bool AMainCharacter::GetResultFromCapsuleTrace(FVector StartPoint, FVector EndPoint, float Radius, float HalfHeight, FHitResult& HitResult)
+bool AMainCharacter::GetResultFromCapsuleTrace(const FVector StartPoint, const FVector EndPoint, const float Radius, const float HalfHeight, FHitResult& HitResult)
 {
-	return UKismetSystemLibrary::CapsuleTraceSingleByProfile(this, StartPoint, EndPoint, Radius, HalfHeight, FName("BlockAll"), false, ActorsToIgnore, EDrawDebugTrace::ForOneFrame, HitResult, true);
+	return UKismetSystemLibrary::CapsuleTraceSingleForObjects(this, StartPoint, EndPoint, Radius, HalfHeight, ClimbingObjectTypes, false, ActorsToIgnore, EDrawDebugTrace::ForOneFrame, HitResult, true);
+}
+
+bool AMainCharacter::GetResultFromBoxTrace(const FVector StartPoint, const FVector EndPoint, const FVector HalfSize, const FRotator Orientation, FHitResult& HitResult)
+{
+	return UKismetSystemLibrary::BoxTraceSingleForObjects(this, StartPoint, EndPoint, HalfSize, Orientation, ClimbingObjectTypes, false, ActorsToIgnore, EDrawDebugTrace::ForOneFrame, HitResult, true);
 }
 
 void AMainCharacter::JumpLeftLedge()
 {
 	bJumping = true;
-	MessegeIsJumpingToAnim();
-	MessegeCanJumpLeftToAnim();
 
 	DisableInput(UGameplayStatics::GetPlayerController(this, 0));
-	FVector PlayerLocation = GetCapsuleComponent()->GetRelativeLocation() + GetActorRightVector() * -1 * ClimbingSideJumpLength;
-	FLatentActionInfo Action(1, 0, TEXT("ClimbLeftJumpingComplete"), this);
-	UKismetSystemLibrary::MoveComponentTo(GetCapsuleComponent(), PlayerLocation, GetCapsuleComponent()->GetRelativeRotation(), true, true, GetClimbSideJumpMontageLength(), false, EMoveComponentAction::Move, Action);
+	
+	FTimerHandle Timer;
+	GetWorld()->GetTimerManager().SetTimer(Timer, this, &AMainCharacter::ClimbLeftJumpingComplete, GetClimbSideJumpMontageLength(), false);
+	if (GetMesh() && GetMesh()->GetAnimInstance())
+	{
+		GetMesh()->GetAnimInstance()->Montage_Play(Animations.ParkourAnimations.ClimbJumpLeft);
+	}
 
 	if (Role < ROLE_Authority)
 	{
@@ -686,27 +757,31 @@ void AMainCharacter::Multicast_JumpLeftLedge_Implementation()
 	if (!IsLocallyControlled())
 	{
 		bJumping = true;
-		MessegeIsJumpingToAnim();
-		MessegeCanJumpLeftToAnim();
 
 		DisableInput(UGameplayStatics::GetPlayerController(this, 0));
-		FVector PlayerLocation = GetCapsuleComponent()->GetRelativeLocation() + GetActorRightVector() * -1 * ClimbingSideJumpLength;
-		FLatentActionInfo Action(1, 0, TEXT("ClimbLeftJumpingComplete"), this);
-		UKismetSystemLibrary::MoveComponentTo(GetCapsuleComponent(), PlayerLocation, GetCapsuleComponent()->GetRelativeRotation(), true, true, GetClimbSideJumpMontageLength(), false, EMoveComponentAction::Move, Action);
-
+		
+		FTimerHandle Timer;
+		GetWorld()->GetTimerManager().SetTimer(Timer, this, &AMainCharacter::ClimbLeftJumpingComplete, GetClimbSideJumpMontageLength(), false);
+		if (GetMesh() && GetMesh()->GetAnimInstance())
+		{
+			GetMesh()->GetAnimInstance()->Montage_Play(Animations.ParkourAnimations.ClimbJumpLeft);
+		}
 	}
 }
 
 void AMainCharacter::JumpRightLedge()
 {
 	bJumping = true;
-	MessegeIsJumpingToAnim();
-	MessegeCanJumpRightToAnim();
 
 	DisableInput(UGameplayStatics::GetPlayerController(this, 0));
-	FVector PlayerLocation = GetCapsuleComponent()->GetRelativeLocation() + GetActorRightVector() * ClimbingSideJumpLength;
-	FLatentActionInfo Action(1, 0, TEXT("ClimbRightJumpingComplete"), this);
-	UKismetSystemLibrary::MoveComponentTo(GetCapsuleComponent(), PlayerLocation, GetCapsuleComponent()->GetRelativeRotation(), true, true, GetClimbSideJumpMontageLength(), false, EMoveComponentAction::Move, Action);
+	
+	FTimerHandle Timer;
+	GetWorld()->GetTimerManager().SetTimer(Timer, this, &AMainCharacter::ClimbRightJumpingComplete, GetClimbSideJumpMontageLength(), false);
+	
+	if (GetMesh() && GetMesh()->GetAnimInstance())
+	{
+		GetMesh()->GetAnimInstance()->Montage_Play(Animations.ParkourAnimations.ClimbJumpRight);
+	}
 
 	if (Role < ROLE_Authority)
 	{
@@ -718,37 +793,6 @@ void AMainCharacter::JumpRightLedge()
 	}
 }
 
-void AMainCharacter::JumpUpLedge()
-{
-	Test();
-
-	if (Role < ROLE_Authority)
-	{
-		Server_JumpUpLedge();
-	}
-	if (Role == ROLE_Authority)
-	{
-		Multicast_JumpUpLedge();
-	}
-}
-
-void AMainCharacter::Server_JumpUpLedge_Implementation()
-{
-	Multicast_JumpUpLedge();
-}
-
-bool AMainCharacter::Server_JumpUpLedge_Validate()
-{
-	return true;
-}
-
-void AMainCharacter::Multicast_JumpUpLedge_Implementation()
-{
-	if (!IsLocallyControlled())
-	{
-		Test();
-	}
-}
 
 void AMainCharacter::Server_JumpRightLedge_Implementation()
 {
@@ -765,16 +809,75 @@ void AMainCharacter::Multicast_JumpRightLedge_Implementation()
 	if (!IsLocallyControlled())
 	{
 		bJumping = true;
-		MessegeIsJumpingToAnim();
-		MessegeCanJumpRightToAnim();
 
 		DisableInput(UGameplayStatics::GetPlayerController(this, 0));
-		FVector PlayerLocation = GetCapsuleComponent()->GetRelativeLocation() + GetActorRightVector() * ClimbingSideJumpLength;
-		FLatentActionInfo Action(1, 0, TEXT("ClimbRightJumpingComplete"), this);
-		UKismetSystemLibrary::MoveComponentTo(GetCapsuleComponent(), PlayerLocation, GetCapsuleComponent()->GetRelativeRotation(), true, true, GetClimbSideJumpMontageLength(), false, EMoveComponentAction::Move, Action);
 
+		FTimerHandle Timer;
+		GetWorld()->GetTimerManager().SetTimer(Timer, this, &AMainCharacter::ClimbRightJumpingComplete, GetClimbSideJumpMontageLength(), false);
+
+		if (GetMesh() && GetMesh()->GetAnimInstance())
+		{
+			GetMesh()->GetAnimInstance()->Montage_Play(Animations.ParkourAnimations.ClimbJumpRight);
+		}
+		
 	}
 }
+
+
+void AMainCharacter::JumpUpLedge()
+{
+	bJumping = true;
+
+	DisableInput(UGameplayStatics::GetPlayerController(this, 0));
+
+	FTimerHandle Timer;
+	GetWorld()->GetTimerManager().SetTimer(Timer, this, &AMainCharacter::ClimbUpJumpingComplete, GetClimbJumpUpMontageLength(), false);
+
+	if (GetMesh() && GetMesh()->GetAnimInstance())
+	{
+		GetMesh()->GetAnimInstance()->Montage_Play(Animations.ParkourAnimations.ClimbJumpUp);
+	}
+
+	if (Role < ROLE_Authority)
+	{
+		Server_JumpUpLedge();
+	}
+	if (Role == ROLE_Authority)
+	{
+		Multicast_JumpUpLedge();
+	}
+}
+
+
+
+void AMainCharacter::Server_JumpUpLedge_Implementation()
+{
+	Multicast_JumpUpLedge();
+}
+
+bool AMainCharacter::Server_JumpUpLedge_Validate()
+{
+	return true;
+}
+
+void AMainCharacter::Multicast_JumpUpLedge_Implementation()
+{
+	if (!IsLocallyControlled())
+	{
+		bJumping = true;
+
+		DisableInput(UGameplayStatics::GetPlayerController(this, 0));
+
+		FTimerHandle Timer;
+		GetWorld()->GetTimerManager().SetTimer(Timer, this, &AMainCharacter::ClimbUpJumpingComplete, GetClimbJumpUpMontageLength(), false);
+
+		if (GetMesh() && GetMesh()->GetAnimInstance())
+		{
+			GetMesh()->GetAnimInstance()->Montage_Play(Animations.ParkourAnimations.ClimbJumpUp);
+		}
+	}
+}
+
 
 
 bool AMainCharacter::IsPelvisNearLedge()
@@ -852,6 +955,7 @@ void AMainCharacter::Multicast_ClimbingLedge_Implementation()
 		bClimbing = true;
 		MessegeClimbingToAnim();
 		bHanging = false;
+		GetMesh()->GetAnimInstance()->Montage_Play(Animations.ParkourAnimations.ClimbUp);
 	}
 }
 
@@ -888,7 +992,6 @@ void AMainCharacter::ReleaseLedge()
 	MessegeHangingToAnim();
 	MessegeClimbingToAnim();
 
-	//ClearSideTracesDrawTimer();
 	StartFrontTracesDrawTimer();
 }
 
@@ -915,7 +1018,6 @@ void AMainCharacter::Multicast_ReleaseLedge_Implementation()
 		MessegeHangingToAnim();
 		MessegeClimbingToAnim();
 
-		//ClearSideTracesDrawTimer();
 		StartFrontTracesDrawTimer();
 	}
 
@@ -950,11 +1052,9 @@ void AMainCharacter::ClimbLeftJumpingComplete()
 {
 	bJumping = false;
 	Server_SetIsJumping(bJumping);
-	MessegeIsJumpingToAnim();
 
 	bCanJumpLeft = false;
 	Server_SetCanJumpLeft(bCanJumpLeft);
-	MessegeCanJumpLeftToAnim();
 
 	EnableInput(UGameplayStatics::GetPlayerController(this, 0));
 }
@@ -963,13 +1063,23 @@ void AMainCharacter::ClimbRightJumpingComplete()
 {
 	bJumping = false;
 	Server_SetIsJumping(bJumping);
-	MessegeIsJumpingToAnim();
 
 	bCanJumpRight = false;
 	Server_SetCanJumpRight(bCanJumpRight);
-	MessegeCanJumpRightToAnim();
 
 	EnableInput(UGameplayStatics::GetPlayerController(this, 0));
+}
+
+void AMainCharacter::ClimbUpJumpingComplete()
+{
+	bJumping = false;
+	Server_SetIsJumping(bJumping);
+
+	bCanJumpUp = false;
+	Server_SetCanJumpUp(bCanJumpUp);
+
+	EnableInput(UGameplayStatics::GetPlayerController(this, 0));
+
 }
 
 
@@ -990,6 +1100,15 @@ FRotator AMainCharacter::CalculateGrabRotation()
 	NewRotation.Yaw = NewRotation.Yaw - 180.0;
 
 	return NewRotation;
+}
+
+bool AMainCharacter::IsTurnDirection()
+{
+	FVector ControlDirection = UKismetMathLibrary::GetForwardVector(Camera->GetComponentRotation());
+	FVector PlayerDirection = UKismetMathLibrary::GetForwardVector(GetActorRotation());
+	float DotProduct = ControlDirection.X * PlayerDirection.X + ControlDirection.Y * PlayerDirection.Y + ControlDirection.Z * PlayerDirection.Z;
+	return DotProduct < 0;
+	
 }
 
 void AMainCharacter::MoveForward(float Value)
@@ -1033,6 +1152,13 @@ void AMainCharacter::LookUp(float Value)
 void AMainCharacter::Turn(float Value)
 {
 	AddControllerYawInput(Value);
+
+	// Do Once
+	if (bHanging)
+	{
+		Turning();
+	}
+
 }
 
 void AMainCharacter::JumpPressed()
@@ -1043,30 +1169,36 @@ void AMainCharacter::JumpPressed()
 	}
 
 	// its trace draw do check for bCanJumpUp 
-	if  (bHanging)
+	if  (bHanging && !IsTurnDirection())
 	{
 		UpJumpTraceDraw();
 	}
 
+	if (bHanging && IsTurnDirection())
+	{
+		ReleaseLedge();
+		JumpBackLedge();
+	}
+
 	// Climbing Up
-	if (bHanging && MoveRightInput == 0.0 && !bCanJumpUp)
+	if (bHanging && MoveRightInput == 0.0 && !bCanJumpUp && !IsTurnDirection())
 	{
 		ClimbingLedge();
 		ReleaseLedgeByTime(GetClimbUpMontageLength());
 	}
 
 	// Jump Up
-	if(bHanging && MoveRightInput == 0.0 && bCanJumpUp)
+	if(bHanging && MoveRightInput == 0.0 && bCanJumpUp && !IsTurnDirection())
 	{
 		JumpUpLedge();
 	}
 
-	if (bCanJumpLeft && MoveRightInput < 0)
+	if (bCanJumpLeft && MoveRightInput < 0 && !IsTurnDirection())
 	{
 		JumpLeftLedge();
 	}
 
-	if (bCanJumpRight && MoveRightInput > 0)
+	if (bCanJumpRight && MoveRightInput > 0 && !IsTurnDirection())
 	{
 		JumpRightLedge();
 	}
@@ -1074,9 +1206,4 @@ void AMainCharacter::JumpPressed()
 
 }
 
-void AMainCharacter::Test()
-{
-	MovementComponent->SetMovementMode(EMovementMode::MOVE_Flying);
-	GetMesh()->GetAnimInstance()->Montage_Play(TestMontage);
-}
 
